@@ -16,7 +16,7 @@ include_directories(${catkin_INCLUDE_DIRS})
 
 catkin_package()
 
-set(CMAKE_CXX_FLAGS "-Wall -g -march=native -std=c++11")
+#set(CMAKE_CXX_FLAGS "-Wall -g -march=native -std=c++11")
 
 find_path(LIBYUV_INCLUDE_DIR libyuv.h)
 find_library(LIBYUV_LIBRARY yuv)
@@ -31,13 +31,14 @@ endif()
 find_package(Eigen REQUIRED)
 include_directories(${Eigen_INCLUDE_DIRS})
 
-enable_language(ASM)
-set_property(SOURCE src/generate_pointcloud.s PROPERTY LANGUAGE ASM)
+# No asm for armv8 please
+#enable_language(ASM)
+#set_property(SOURCE src/generate_pointcloud.s PROPERTY LANGUAGE ASM)
 
 add_library(xtion_grabber
 	src/xtion_grabber.cpp
 	src/generate_pointcloud.cpp
-	src/generate_pointcloud.s
+#	src/generate_pointcloud.s
 )
 target_link_libraries(xtion_grabber
 	${catkin_LIBRARIES}
