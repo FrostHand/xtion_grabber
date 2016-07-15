@@ -16,7 +16,7 @@ include_directories(${catkin_INCLUDE_DIRS})
 
 catkin_package()
 
-#set(CMAKE_CXX_FLAGS "-Wall -g -march=native -std=c++11")
+set(CMAKE_CXX_FLAGS "-std=c++11")
 
 find_path(LIBYUV_INCLUDE_DIR libyuv.h)
 find_library(LIBYUV_LIBRARY yuv)
