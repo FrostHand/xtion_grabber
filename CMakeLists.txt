@@ -40,7 +40,13 @@ add_library(xtion_grabber
 	src/generate_pointcloud.cpp
 #	src/generate_pointcloud.s
 )
+
 target_link_libraries(xtion_grabber
 	${catkin_LIBRARIES}
 	${LIBYUV_LIBRARIES}
 )
+
+
+install(TARGETS xtion_grabber DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+install(DIRECTORY launch DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
+install(DIRECTORY scripts DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
