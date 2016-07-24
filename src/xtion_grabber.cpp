@@ -123,7 +123,7 @@ bool XtionGrabber::setupDepth(const std::string& device)
 
     if(ioctl(m_depth_fd, VIDIOC_REQBUFS, &reqbuf) != 0)
     {
-        NODELET_INFO("Could not request buffers");
+        NODELET_INFO("Could not request depth buffers, errno=%d: %s", errno, strerror(errno));
         return false;
     }
 
@@ -142,7 +142,7 @@ bool XtionGrabber::setupDepth(const std::string& device)
 
         if(ioctl(m_depth_fd, VIDIOC_QBUF, &buffer->buf) != 0)
         {
-            NODELET_INFO("Could not queue buffer");
+            NODELET_INFO("Could not queue depth buffer #%d, errno=%d: %s", (int)i, errno, strerror(errno));
             return false;
         }
     }
@@ -179,7 +179,7 @@ bool XtionGrabber::setupColor(const std::string& device)
 
     if(ioctl(m_color_fd, VIDIOC_S_FMT, &fmt) != 0)
     {
-        NODELET_ERROR("Could not set image format");
+        NODELET_ERROR("Could not set image format, errno=%d: %s", errno, strerror(errno));
         return false;
     }
 
@@ -193,7 +193,7 @@ bool XtionGrabber::setupColor(const std::string& device)
 
     if(ioctl(m_color_fd, VIDIOC_S_PARM, &parms) != 0)
     {
-        NODELET_ERROR("Could not set image interval");
+        NODELET_ERROR("Could not set image interval, errno=%d: %s", errno, strerror(errno));
         return false;
     }
 
@@ -205,7 +205,7 @@ bool XtionGrabber::setupColor(const std::string& device)
 
     if(ioctl(m_color_fd, VIDIOC_S_CTRL, &ctrl) != 0)
     {
-        NODELET_ERROR("Could not set flicker control");
+        NODELET_ERROR("Could not set flicker control, errno=%d: %s", errno, strerror(errno));
         return false;
     }
 
@@ -217,7 +217,7 @@ bool XtionGrabber::setupColor(const std::string& device)
 
     if(ioctl(m_color_fd, VIDIOC_REQBUFS, &reqbuf) != 0)
     {
-        NODELET_ERROR("Could not request buffers");
+        NODELET_ERROR("Could not request buffers, errno=%d: %s", errno, strerror(errno));
         return false;
     }
 
@@ -236,7 +236,7 @@ bool XtionGrabber::setupColor(const std::string& device)
 
         if(ioctl(m_color_fd, VIDIOC_QBUF, &buffer->buf) != 0)
         {
-            NODELET_INFO("Could not queue buffer");
+            NODELET_INFO("Could not queue buffer, errno=%d: %s", errno, strerror(errno));
             return false;
         }
     }
@@ -393,7 +393,7 @@ void XtionGrabber::read_thread()
             {
                 if(errno == EAGAIN)
                     continue;
-                NODELET_INFO("Could not dequeue buffer");
+                NODELET_INFO("Could not dequeue color buffer, errno=%d: %s", errno, strerror(errno));
                 return;
             }
 
@@ -450,7 +450,7 @@ void XtionGrabber::read_thread()
 
             if(ioctl(m_color_fd, VIDIOC_QBUF, &buffer->buf) != 0)
             {
-                NODELET_INFO("Could not queue buffer");
+                NODELET_INFO("Could not queue color buffer, errno=%d: %s", errno, strerror(errno));
                 return;
             }
         }
@@ -466,7 +466,7 @@ void XtionGrabber::read_thread()
             {
                 if(errno == EAGAIN)
                     continue;
-                NODELET_INFO("Could not dequeue buffer");
+                NODELET_INFO("Could not dequeue depth buffer, errno=%d: %s", errno, strerror(errno));
                 return;
             }
 
@@ -491,7 +491,7 @@ void XtionGrabber::read_thread()
 
             if(ioctl(m_depth_fd, VIDIOC_QBUF, &buffer->buf) != 0)
             {
-                NODELET_INFO("Could not queue buffer");
+                NODELET_INFO("Could not queue buffer, errno=%d: %s", errno, strerror(errno));
                 return;
             }
         }
@@ -505,6 +505,8 @@ void XtionGrabber::read_thread()
                 publishPointCloud(m_lastDepthImage, &m_cloudGenerator, &m_pub_cloud);
             }
         }
+
+        ros::Duration(0.01).sleep();
         //Automatically go into idle mode if timeout is reached without subscribers
         if(ros::Time::now()-counter>timeout)
         {
