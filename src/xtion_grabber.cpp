@@ -267,10 +267,13 @@ void XtionGrabber::onInit()
         throw std::runtime_error("depth_device and color_device parameters are mandatory!");
     }
 
+    int queue = 5;
+
     nh.param("depth_width", m_depthWidth, 640);
     nh.param("depth_height", m_depthHeight, 480);
     nh.param("color_width", m_colorWidth, 1280);
     nh.param("color_height", m_colorHeight, 1024);
+    nh.param("queue", queue, 5);
     //bool initial_state;
     //nh.param("initial_state_on", initial_state, false);
     // tf prefix
@@ -280,16 +283,15 @@ void XtionGrabber::onInit()
 
     m_nodeName = ros::this_node::getName();
 
-    m_pub_cloud = nh.advertise<sensor_msgs::PointCloud2>("depth_registered/points", 1);
+    m_pub_cloud = nh.advertise<sensor_msgs::PointCloud2>("depth_registered/points", queue);
 
     ros::NodeHandle color_nh(getPrivateNodeHandle(), "rgb");
     m_color_it.reset(new image_transport::ImageTransport(color_nh));
-    m_pub_color = m_color_it->advertiseCamera("image_raw", 1);
+    m_pub_color = m_color_it->advertiseCamera("image_raw", queue);
 
     ros::NodeHandle depth_nh(getPrivateNodeHandle(), "depth_registered");
     m_depth_it.reset(new image_transport::ImageTransport(depth_nh));
-    m_pub_depth = m_depth_it->advertiseCamera("image_raw", 1);
-
+    m_pub_depth = m_depth_it->advertiseCamera("image_raw", queue);
 
     init();
     setupRGBInfo();
@@ -389,12 +391,13 @@ void XtionGrabber::read_thread()
             buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
             buf.memory = V4L2_MEMORY_USERPTR;
 
-            if(ioctl(m_color_fd, VIDIOC_DQBUF, &buf) != 0)
+            if(ioctl(m_color_fd, VIDIOC_DQBUF, &buf) == -1)
             {
                 if(errno == EAGAIN)
                     continue;
                 NODELET_INFO("Could not dequeue color buffer, errno=%d: %s", errno, strerror(errno));
-                return;
+                //return;
+                continue;
             }
 
             ColorBuffer* buffer = &m_color_buffers[buf.index];
@@ -451,7 +454,8 @@ void XtionGrabber::read_thread()
             if(ioctl(m_color_fd, VIDIOC_QBUF, &buffer->buf) != 0)
             {
                 NODELET_INFO("Could not queue color buffer, errno=%d: %s", errno, strerror(errno));
-                return;
+                //continue;
+                //return;
             }
         }
 
@@ -462,12 +466,12 @@ void XtionGrabber::read_thread()
             buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
             buf.memory = V4L2_MEMORY_USERPTR;
 
-            if(ioctl(m_depth_fd, VIDIOC_DQBUF, &buf) != 0)
+            if(ioctl(m_depth_fd, VIDIOC_DQBUF, &buf) == -1)
             {
                 if(errno == EAGAIN)
                     continue;
                 NODELET_INFO("Could not dequeue depth buffer, errno=%d: %s", errno, strerror(errno));
-                return;
+                continue;
             }
 
             DepthBuffer* buffer = &m_depth_buffers[buf.index];
@@ -489,10 +493,11 @@ void XtionGrabber::read_thread()
             buffer->image = createDepthImage();
             buffer->buf.m.userptr = (long unsigned int)buffer->image->data.data();
 
-            if(ioctl(m_depth_fd, VIDIOC_QBUF, &buffer->buf) != 0)
+            if(ioctl(m_depth_fd, VIDIOC_QBUF, &buffer->buf) == -1)
             {
                 NODELET_INFO("Could not queue buffer, errno=%d: %s", errno, strerror(errno));
-                return;
+                //return;
+                continue;
             }
         }
 
