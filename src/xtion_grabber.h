@@ -122,6 +122,9 @@ namespace xtion_grabber
 
       void read_thread();
 
+      int grab_color();
+      int grab_depth();
+
       boost::thread m_thread;
       bool m_shouldExit;
 

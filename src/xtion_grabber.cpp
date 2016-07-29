@@ -361,6 +361,128 @@ ros::Time timeFromTimeval(const struct timeval& tv)
                 );
 }
 
+int XtionGrabber::grab_color()
+{
+	int res = 0;
+	v4l2_buffer buf;
+	memset(&buf, 0, sizeof(buf));
+	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	buf.memory = V4L2_MEMORY_USERPTR;
+
+	if(ioctl(m_color_fd, VIDIOC_DQBUF, &buf) == -1)
+	{
+		if(errno == EAGAIN)
+			return 0;
+		NODELET_INFO("Could not dequeue color buffer, errno=%d: %s", errno, strerror(errno));
+		return -1;
+	}
+
+	ColorBuffer* buffer = &m_color_buffers[buf.index];
+
+	sensor_msgs::ImagePtr img = m_color_pool->create();
+	img->width = m_colorWidth;
+	img->height = m_colorHeight;
+	img->step = img->width * 4;
+	img->data.resize(img->step * img->height);
+	img->header.stamp = timeFromTimeval(buf.timestamp);
+	img->header.frame_id = m_color_info.header.frame_id;
+
+	img->encoding = sensor_msgs::image_encodings::BGRA8;
+
+#if HAVE_LIBYUV
+	libyuv::ConvertToARGB(
+				buffer->data.data(), buffer->data.size(),
+				img->data.data(),
+				m_colorWidth*4, 0, 0, m_colorWidth, m_colorHeight, m_colorWidth, m_colorHeight,
+				libyuv::kRotate0, libyuv::FOURCC_UYVY
+				);
+#else
+	uint32_t* dptr = (uint32_t*)img->data.data();
+
+	for(size_t y = 0; y < img->height; ++y)
+	{
+		for(size_t x = 0; x < img->width-1; x += 2)
+		{
+			unsigned char* base = &buffer->data[y*m_colorWidth*2+x*2];
+			float y1 = base[1];
+			float u  = base[0];
+			float y2 = base[3];
+			float v  = base[2];
+
+			uint32_t rgb1 = yuv(y1, u, v);
+			uint32_t rgb2 = yuv(y2, u, v);
+
+			dptr[y*img->width + x + 0] = rgb1;
+			dptr[y*img->width + x + 1] = rgb2;
+		}
+	}
+#endif
+
+	m_lastColorImage = img;
+	m_lastColorSeq = buf.sequence;
+
+	m_color_info.header.stamp = img->header.stamp;
+	if(m_pub_color.getNumSubscribers() != 0)
+	{
+		m_pub_color.publish(img, boost::make_shared<sensor_msgs::CameraInfo>(m_color_info));
+		res = 1;
+	}
+
+	if(ioctl(m_color_fd, VIDIOC_QBUF, &buffer->buf) != 0)
+	{
+		NODELET_INFO("Could not queue color buffer, errno=%d: %s", errno, strerror(errno));
+		//continue;
+		return -1;
+	}
+
+	return res;
+}
+
+int XtionGrabber::grab_depth()
+{
+	int res = 0;
+	v4l2_buffer buf;
+	memset(&buf, 0, sizeof(buf));
+	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	buf.memory = V4L2_MEMORY_USERPTR;
+
+	if(ioctl(m_depth_fd, VIDIOC_DQBUF, &buf) == -1)
+	{
+		if(errno == EAGAIN)
+			return 0;
+		NODELET_INFO("Could not dequeue depth buffer, errno=%d: %s", errno, strerror(errno));
+		return -1;
+	}
+
+	DepthBuffer* buffer = &m_depth_buffers[buf.index];
+
+	buffer->image->header.stamp = timeFromTimeval(buf.timestamp);
+
+	m_lastDepthImage = buffer->image;
+	m_lastDepthSeq = buf.sequence;
+
+	m_depth_info.header.stamp = buffer->image->header.stamp;
+
+	if(m_pub_depth.getNumSubscribers() != 0)
+	{
+		res = 1;
+		m_pub_depth.publish(buffer->image, boost::make_shared<sensor_msgs::CameraInfo>(m_depth_info));
+	}
+
+	buffer->image.reset();
+
+	buffer->image = createDepthImage();
+	buffer->buf.m.userptr = (long unsigned int)buffer->image->data.data();
+
+	if(ioctl(m_depth_fd, VIDIOC_QBUF, &buffer->buf) == -1)
+	{
+		NODELET_INFO("Could not queue buffer, errno=%d: %s", errno, strerror(errno));
+		return -1;
+	}
+
+	return res;
+}
+
 void XtionGrabber::read_thread()
 {
     fd_set fds;
@@ -381,124 +503,19 @@ void XtionGrabber::read_thread()
         if(ret < 0)
         {
             NODELET_INFO("Could not select()");
-            return;
+            continue;
         }
 
         if(FD_ISSET(m_color_fd, &fds))
         {
-            v4l2_buffer buf;
-            memset(&buf, 0, sizeof(buf));
-            buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-            buf.memory = V4L2_MEMORY_USERPTR;
-
-            if(ioctl(m_color_fd, VIDIOC_DQBUF, &buf) == -1)
-            {
-                if(errno == EAGAIN)
-                    continue;
-                NODELET_INFO("Could not dequeue color buffer, errno=%d: %s", errno, strerror(errno));
-                //return;
-                continue;
-            }
-
-            ColorBuffer* buffer = &m_color_buffers[buf.index];
-
-            sensor_msgs::ImagePtr img = m_color_pool->create();
-            img->width = m_colorWidth;
-            img->height = m_colorHeight;
-            img->step = img->width * 4;
-            img->data.resize(img->step * img->height);
-            img->header.stamp = timeFromTimeval(buf.timestamp);
-            img->header.frame_id = m_color_info.header.frame_id;
-
-            img->encoding = sensor_msgs::image_encodings::BGRA8;
-
-#if HAVE_LIBYUV
-            libyuv::ConvertToARGB(
-                        buffer->data.data(), buffer->data.size(),
-                        img->data.data(),
-                        m_colorWidth*4, 0, 0, m_colorWidth, m_colorHeight, m_colorWidth, m_colorHeight,
-                        libyuv::kRotate0, libyuv::FOURCC_UYVY
-                        );
-#else
-            uint32_t* dptr = (uint32_t*)img->data.data();
-
-            for(size_t y = 0; y < img->height; ++y)
-            {
-                for(size_t x = 0; x < img->width-1; x += 2)
-                {
-                    unsigned char* base = &buffer->data[y*m_colorWidth*2+x*2];
-                    float y1 = base[1];
-                    float u  = base[0];
-                    float y2 = base[3];
-                    float v  = base[2];
-
-                    uint32_t rgb1 = yuv(y1, u, v);
-                    uint32_t rgb2 = yuv(y2, u, v);
-
-                    dptr[y*img->width + x + 0] = rgb1;
-                    dptr[y*img->width + x + 1] = rgb2;
-                }
-            }
-#endif
-
-            m_lastColorImage = img;
-            m_lastColorSeq = buf.sequence;
-
-            m_color_info.header.stamp = img->header.stamp;
-            if(m_pub_color.getNumSubscribers() != 0)
-            {
-                m_pub_color.publish(img, boost::make_shared<sensor_msgs::CameraInfo>(m_color_info));
-                counter = ros::Time::now();
-            }
-
-            if(ioctl(m_color_fd, VIDIOC_QBUF, &buffer->buf) != 0)
-            {
-                NODELET_INFO("Could not queue color buffer, errno=%d: %s", errno, strerror(errno));
-                //continue;
-                //return;
-            }
+        	if(grab_color() == 1)
+        		counter = ros::Time::now();
         }
 
         if(FD_ISSET(m_depth_fd, &fds))
         {
-            v4l2_buffer buf;
-            memset(&buf, 0, sizeof(buf));
-            buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-            buf.memory = V4L2_MEMORY_USERPTR;
-
-            if(ioctl(m_depth_fd, VIDIOC_DQBUF, &buf) == -1)
-            {
-                if(errno == EAGAIN)
-                    continue;
-                NODELET_INFO("Could not dequeue depth buffer, errno=%d: %s", errno, strerror(errno));
-                continue;
-            }
-
-            DepthBuffer* buffer = &m_depth_buffers[buf.index];
-
-            buffer->image->header.stamp = timeFromTimeval(buf.timestamp);
-
-            m_lastDepthImage = buffer->image;
-            m_lastDepthSeq = buf.sequence;
-
-            m_depth_info.header.stamp = buffer->image->header.stamp;
-            if(m_pub_depth.getNumSubscribers() != 0)
-            {
-                counter = ros::Time::now();
-                m_pub_depth.publish(buffer->image, boost::make_shared<sensor_msgs::CameraInfo>(m_depth_info));
-            }
-
-            buffer->image.reset();
-
-            buffer->image = createDepthImage();
-            buffer->buf.m.userptr = (long unsigned int)buffer->image->data.data();
-
-            if(ioctl(m_depth_fd, VIDIOC_QBUF, &buffer->buf) == -1)
-            {
-                NODELET_INFO("Could not queue buffer, errno=%d: %s", errno, strerror(errno));
-                //return;
-                continue;
-            }
+        	if(grab_depth() == 1)
+        		counter = ros::Time::now();
         }
 
         m_cameraMux.unlock();
